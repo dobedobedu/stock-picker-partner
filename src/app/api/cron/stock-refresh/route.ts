@@ -1,55 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { STOCK_UNIVERSE } from '@/lib/universe';
+import YahooFinance from 'yahoo-finance2';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const FMP_BASE = 'https://financialmodelingprep.com/stable';
-
-async function fmpFetch(endpoint: string, params: string): Promise<unknown> {
-  const key = process.env.FMP_API_KEY;
-  if (!key) throw new Error('FMP_API_KEY not set');
-  const url = `${FMP_BASE}/${endpoint}?${params}&apikey=${key}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`FMP ${endpoint} failed: ${res.status}`);
-  return res.json();
-}
-
-/** Fetch quote for a single symbol */
-async function fetchQuote(symbol: string): Promise<Record<string, unknown> | null> {
-  try {
-    const data = await fmpFetch('quote', `symbol=${symbol}`);
-    const arr = data as Record<string, unknown>[];
-    return arr[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** Fetch ratios for a single symbol */
-async function fetchRatios(symbol: string): Promise<Record<string, unknown> | null> {
-  try {
-    const data = await fmpFetch('ratios-ttm', `symbol=${symbol}`);
-    const arr = data as Record<string, unknown>[];
-    return arr[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** Process symbols sequentially with a small delay to be gentle on the API */
-async function processSequential<T>(
-  items: string[],
-  fn: (symbol: string) => Promise<T>,
-): Promise<Map<string, T>> {
-  const results = new Map<string, T>();
-  for (const sym of items) {
-    const data = await fn(sym);
-    if (data) results.set(sym, data);
-  }
-  return results;
-}
+const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 export async function GET(req: NextRequest) {
   // Verify cron secret
@@ -63,65 +20,77 @@ export async function GET(req: NextRequest) {
   const universeMap = new Map(STOCK_UNIVERSE.map(s => [s.symbol, s]));
   const today = new Date().toISOString().split('T')[0];
 
-  try {
-    // Budget: 250 requests/day
-    // Strategy: 80 quotes (80 req) + 80 ratios (80 req) = 160 requests total
-    // Derive revenue growth & dividend yield from ratios-ttm (no separate income/key-metrics calls)
+  const rows: Record<string, unknown>[] = [];
+  const errors: string[] = [];
 
-    // 1. Fetch all quotes sequentially (80 requests)
-    const quotesMap = await processSequential(symbols, fetchQuote);
+  // Process stocks sequentially to stay within Yahoo's comfort zone
+  for (const symbol of symbols) {
+    try {
+      // Get quote (price, change, market cap, PE, dividend yield, 52w range)
+      const quote = await yf.quote(symbol);
 
-    // 2. Fetch all ratios sequentially (80 requests)
-    const ratiosMap = await processSequential(symbols, fetchRatios);
+      // Get fundamentals (profit margin, revenue growth, debt-to-equity)
+      let profitMargin = 0;
+      let revenueGrowth = 0;
+      let debtToEquity = 0;
 
-    // 3. Build rows for Supabase upsert
-    const rows = symbols.map(symbol => {
-      const uni = universeMap.get(symbol)!;
-      const quote = quotesMap.get(symbol) ?? {};
-      const ratios = ratiosMap.get(symbol) ?? {};
+      try {
+        const summary = await yf.quoteSummary(symbol, {
+          modules: ['financialData'],
+        });
+        const fd = summary.financialData;
+        if (fd) {
+          profitMargin = fd.profitMargins ?? 0;
+          revenueGrowth = fd.revenueGrowth ?? 0;
+          // Yahoo reports D/E as percentage (e.g., 102.63), convert to ratio (1.0263)
+          debtToEquity = (fd.debtToEquity ?? 0) / 100;
+        }
+      } catch {
+        // Fundamentals failed — use quote-only data, skip fundamentals
+      }
 
-      const price = (quote.price as number) ?? 0;
-      const eps = (ratios.netIncomePerShareTTM as number) ?? 0;
-      const pe = eps > 0 ? price / eps : 0;
+      const price = quote.regularMarketPrice ?? 0;
+      const low52 = quote.fiftyTwoWeekLow ?? 0;
+      const high52 = quote.fiftyTwoWeekHigh ?? 0;
+      const priceChange52w = low52 > 0 ? (price - low52) / low52 : 0;
 
-      const high52 = (quote.yearHigh as number) ?? 0;
-      const low52 = (quote.yearLow as number) ?? 0;
-      // Approximate 52-week return: (price - yearLow) / midpoint - 0.5
-      const priceChange52w = low52 > 0 && price > 0
-        ? (price - low52) / low52
-        : 0;
+      // dividendYield from Yahoo is already a percentage (e.g., 0.42 = 0.42%)
+      // Convert to decimal for our grading (0.0042)
+      const dividendYield = (quote.dividendYield ?? 0) / 100;
 
-      // Derive dividend yield from ratios (dividendPerShareTTM / price)
-      const dividendPerShare = (ratios.dividendPerShareTTM as number) ?? 0;
-      const dividendYield = price > 0 ? dividendPerShare / price : 0;
-
-      // Revenue growth from ratios-ttm if available
-      const revenueGrowth = (ratios.revenuePerShareTTM as number) ?? 0;
-      // Use profit margin from ratios
-      const profitMargin = (ratios.netProfitMarginTTM as number) ?? 0;
-
-      return {
+      rows.push({
         symbol,
         date: today,
-        name: uni.name,
-        sector: uni.sector,
-        emoji: uni.emoji,
+        name: universeMap.get(symbol)?.name ?? quote.shortName ?? symbol,
+        sector: universeMap.get(symbol)?.sector ?? 'Unknown',
+        emoji: universeMap.get(symbol)?.emoji ?? '📊',
         price,
-        change: (quote.change as number) ?? 0,
-        change_percent: (quote.changePercentage as number) ?? 0,
-        market_cap: (quote.marketCap as number) ?? 0,
-        pe,
-        revenue_growth: revenueGrowth, // Will be refined later
+        change: quote.regularMarketChange ?? 0,
+        change_percent: quote.regularMarketChangePercent ?? 0,
+        market_cap: quote.marketCap ?? 0,
+        pe: quote.trailingPE ?? 0,
+        revenue_growth: revenueGrowth,
         profit_margin: profitMargin,
-        debt_to_equity: (ratios.debtToEquityRatioTTM as number) ?? 0,
+        debt_to_equity: debtToEquity,
         dividend_yield: dividendYield,
         high_52w: high52,
         low_52w: low52,
         price_change_52w: priceChange52w,
-      };
-    });
+      });
+    } catch (err) {
+      errors.push(`${symbol}: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+  }
 
-    // 4. Upsert to Supabase
+  if (rows.length === 0) {
+    return NextResponse.json(
+      { error: 'No stocks fetched', errors },
+      { status: 500 },
+    );
+  }
+
+  // Upsert to Supabase
+  try {
     const db = createServiceClient();
     const { error } = await db
       .from('stock_daily')
@@ -133,12 +102,11 @@ export async function GET(req: NextRequest) {
       success: true,
       count: rows.length,
       date: today,
-      apiCalls: symbols.length * 2, // quotes + ratios
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
-    console.error('Cron stock-refresh error:', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to refresh stocks' },
+      { error: err instanceof Error ? err.message : 'Supabase upsert failed' },
       { status: 500 },
     );
   }
