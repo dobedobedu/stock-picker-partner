@@ -3,23 +3,22 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { BatchStockData } from '@/lib/filters';
-import { StockCard } from './StockCard';
+import { gradeToColor } from '@/lib/heatmap-colors';
+import type { Grade } from '@/lib/grading';
 
 interface DeckFundProps {
   deckStocks: BatchStockData[];
   onRemove: (symbol: string) => void;
-  onCompare: (symbols: string[]) => void;
 }
 
 const MAX_DECK = 5;
-const ROTATIONS = [-8, -4, 0, 4, 8];
 
 interface HistoryPoint {
   date: string;
   value: number;
 }
 
-export function DeckFund({ deckStocks, onRemove, onCompare }: DeckFundProps) {
+export function DeckFund({ deckStocks, onRemove }: DeckFundProps) {
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -41,14 +40,12 @@ export function DeckFund({ deckStocks, onRemove, onCompare }: DeckFundProps) {
     fetch(`/api/stock/history?symbols=${symbols}&days=30`)
       .then(res => res.json())
       .then((rows: { symbol: string; date: string; price: number }[]) => {
-        // Compute equal-weight portfolio value per day
         const byDate = new Map<string, Map<string, number>>();
         for (const row of rows) {
           if (!byDate.has(row.date)) byDate.set(row.date, new Map());
           byDate.get(row.date)!.set(row.symbol, row.price);
         }
 
-        // Normalize: day 1 = 100
         const dates = [...byDate.keys()].sort();
         if (dates.length === 0) { setHistory([]); return; }
 
@@ -78,100 +75,130 @@ export function DeckFund({ deckStocks, onRemove, onCompare }: DeckFundProps) {
       .finally(() => setHistoryLoading(false));
   }, [deckStocks]);
 
+  const returnPct = history.length > 1 ? history[history.length - 1].value - 100 : 0;
+  const isUp = returnPct >= 0;
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-bg/90 backdrop-blur-md border-t border-border">
-      <div className="max-w-6xl mx-auto px-6 py-3">
-        <div className="flex items-end gap-4">
-          {/* Card slots */}
-          <div className="flex items-end gap-[-8px] min-w-0">
+    <div className="border-t border-border pt-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">
+            Your Stock Deck
+          </span>
+          <span className="text-[10px] text-text-tertiary font-mono">
+            {deckStocks.length}/{MAX_DECK}
+          </span>
+        </div>
+        {deckStocks.length > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="font-mono font-bold text-sm"
+              style={{ color: gradeToColor(
+                avgGpa >= 3.5 ? 'A' : avgGpa >= 2.5 ? 'B' : avgGpa >= 1.5 ? 'C' : 'D' as Grade
+              )}}
+            >
+              Avg GPA: {avgGpa.toFixed(1)}
+            </span>
+            {history.length > 1 && (
+              <span className={`text-xs font-mono ${isUp ? 'text-green' : 'text-rose'}`}>
+                30d: {isUp ? '+' : ''}{returnPct.toFixed(1)}%
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Running ticker */}
+      {deckStocks.length > 0 ? (
+        <div className="relative overflow-hidden rounded-xl bg-surface border border-border">
+          <div className="ticker-track flex items-center gap-6 py-3 px-4">
             <AnimatePresence>
-              {deckStocks.map((stock, i) => (
-                <div key={stock.symbol} className="-ml-2 first:ml-0">
-                  <StockCard
-                    stock={stock}
-                    variant="compact"
-                    rotation={ROTATIONS[i] ?? 0}
-                    onRemove={() => onRemove(stock.symbol)}
-                  />
-                </div>
+              {deckStocks.map(stock => (
+                <motion.div
+                  key={stock.symbol}
+                  layout
+                  initial={{ opacity: 0, scale: 0.8, x: 20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, x: -20 }}
+                  className="flex items-center gap-3 shrink-0 group relative"
+                >
+                  <span className="text-lg">{stock.emoji}</span>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-sm text-text">{stock.symbol}</span>
+                      <span className="font-mono text-xs text-text-secondary">${stock.price.toFixed(2)}</span>
+                      <span className={`font-mono text-xs ${
+                        stock.changePercent >= 0 ? 'text-green' : 'text-rose'
+                      }`}>
+                        {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] font-bold"
+                        style={{ color: gradeToColor(
+                          stock.gpa >= 3.5 ? 'A' : stock.gpa >= 2.5 ? 'B' : stock.gpa >= 1.5 ? 'C' : 'D' as Grade
+                        )}}
+                      >
+                        GPA {stock.gpa.toFixed(1)}
+                      </span>
+                      <span className="text-text-tertiary text-[10px]">·</span>
+                      <span className="text-[10px] text-text-tertiary">{stock.sector}</span>
+                    </div>
+                  </div>
+                  {/* Remove button on hover */}
+                  <button
+                    onClick={() => onRemove(stock.symbol)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity
+                      w-5 h-5 rounded-full bg-surface-hover text-text-tertiary
+                      text-xs flex items-center justify-center hover:bg-rose/20 hover:text-rose"
+                  >
+                    ×
+                  </button>
+
+                  {/* Separator */}
+                  <div className="w-px h-8 bg-border/50 ml-3" />
+                </motion.div>
               ))}
             </AnimatePresence>
 
-            {/* Empty slots */}
-            {Array.from({ length: MAX_DECK - deckStocks.length }).map((_, i) => (
-              <div
-                key={`empty-${i}`}
-                className="-ml-2 first:ml-0 w-[72px] h-[96px] rounded-xl
-                  border-2 border-dashed border-border/40
-                  flex items-center justify-center text-text-tertiary text-lg"
-                style={{ transform: `rotate(${ROTATIONS[deckStocks.length + i] ?? 0}deg)` }}
-              >
-                +
+            {/* Empty slots indicator */}
+            {deckStocks.length < MAX_DECK && (
+              <div className="flex items-center gap-1 text-text-tertiary shrink-0">
+                {Array.from({ length: MAX_DECK - deckStocks.length }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-8 h-8 rounded-lg border border-dashed border-border/50
+                      flex items-center justify-center text-xs"
+                  >
+                    +
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
 
-          {/* Fund stats + chart */}
-          {deckStocks.length >= 2 && (
-            <div className="flex-1 flex items-center gap-4 min-w-0">
-              {/* Mini chart */}
-              <div className="flex-1 h-[60px] min-w-[120px] max-w-[300px]">
-                {historyLoading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : history.length > 1 ? (
-                  <MiniChart data={history} />
-                ) : (
-                  <div className="h-full flex items-center justify-center text-[10px] text-text-tertiary">
-                    No history yet
-                  </div>
-                )}
-              </div>
-
-              {/* Fund info */}
-              <div className="text-right shrink-0">
-                <div className="text-[10px] text-text-tertiary uppercase tracking-wider">Your Fund</div>
-                <div className="font-mono font-bold text-sm text-text">
-                  GPA {avgGpa.toFixed(1)}
-                </div>
-                {history.length > 1 && (
-                  <div className={`text-[11px] font-mono ${
-                    history[history.length - 1].value >= 100 ? 'text-green' : 'text-rose'
-                  }`}>
-                    {history[history.length - 1].value >= 100 ? '+' : ''}
-                    {(history[history.length - 1].value - 100).toFixed(1)}%
-                  </div>
-                )}
-              </div>
-
-              {/* Compare button */}
-              <button
-                onClick={() => onCompare(deckStocks.map(s => s.symbol))}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-medium shrink-0
-                  bg-accent/15 border border-accent/25 text-accent
-                  hover:bg-accent/25 transition-colors"
-              >
-                Compare
-              </button>
-            </div>
-          )}
-
-          {deckStocks.length < 2 && deckStocks.length > 0 && (
-            <div className="text-[11px] text-text-tertiary">
-              Add {2 - deckStocks.length} more to build your fund
+          {/* Mini chart overlay */}
+          {history.length > 1 && !historyLoading && (
+            <div className="absolute right-0 top-0 bottom-0 w-[140px] pointer-events-none">
+              <div className="absolute inset-0 bg-gradient-to-r from-surface to-transparent" />
+              <MiniChart data={history} />
             </div>
           )}
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center justify-center py-4 rounded-xl border border-dashed border-border/50">
+          <p className="text-xs text-text-tertiary">
+            Click stocks in the heatmap, then "Add to Deck" to build your fund
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Lightweight SVG line chart */
 function MiniChart({ data }: { data: HistoryPoint[] }) {
-  const width = 280;
-  const height = 55;
+  const width = 140;
+  const height = 50;
   const padding = 2;
 
   const values = data.map(d => d.value);
@@ -185,20 +212,10 @@ function MiniChart({ data }: { data: HistoryPoint[] }) {
     return `${x},${y}`;
   }).join(' ');
 
-  const lastValue = values[values.length - 1];
-  const isUp = lastValue >= 100;
+  const isUp = values[values.length - 1] >= 100;
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-      {/* Baseline at 100 */}
-      <line
-        x1={padding}
-        y1={height - padding - ((100 - min) / range) * (height - 2 * padding)}
-        x2={width - padding}
-        y2={height - padding - ((100 - min) / range) * (height - 2 * padding)}
-        stroke="rgba(255,255,255,0.08)"
-        strokeDasharray="4,4"
-      />
       <polyline
         points={points}
         fill="none"
@@ -206,6 +223,7 @@ function MiniChart({ data }: { data: HistoryPoint[] }) {
         strokeWidth="1.5"
         strokeLinejoin="round"
         strokeLinecap="round"
+        opacity={0.6}
       />
     </svg>
   );

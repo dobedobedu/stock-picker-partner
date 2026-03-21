@@ -1,32 +1,24 @@
 'use client';
 
-import { Search, GraduationCap, Scan, GitBranch, ClipboardList } from 'lucide-react';
+import { Search, BarChart3, GraduationCap } from 'lucide-react';
 
-export type Tab = 'find' | 'learn' | 'xray' | 'tree' | 'report';
+export type Tab = 'search' | 'evaluate' | 'learn';
 
-const PRIMARY_TABS: { id: Tab; label: string; icon: typeof Search }[] = [
-  { id: 'find', label: 'Find', icon: Search },
+const TABS: { id: Tab; label: string; icon: typeof Search }[] = [
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'evaluate', label: 'Evaluate', icon: BarChart3 },
   { id: 'learn', label: 'Learn', icon: GraduationCap },
-];
-
-const STOCK_TABS: { id: Tab; label: string; icon: typeof Scan }[] = [
-  { id: 'xray', label: 'X-Ray', icon: Scan },
-  { id: 'tree', label: 'Decision Tree', icon: GitBranch },
-  { id: 'report', label: 'Report Card', icon: ClipboardList },
 ];
 
 interface Props {
   active: Tab;
   onChange: (tab: Tab) => void;
-  showStockTabs?: boolean;
 }
 
-export function TabNav({ active, onChange, showStockTabs }: Props) {
-  const tabs = showStockTabs ? [...PRIMARY_TABS, ...STOCK_TABS] : PRIMARY_TABS;
-
+export function TabNav({ active, onChange }: Props) {
   return (
     <div className="flex border-b border-border">
-      {tabs.map((tab) => {
+      {TABS.map((tab) => {
         const Icon = tab.icon;
         const isActive = active === tab.id;
         return (

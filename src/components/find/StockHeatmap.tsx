@@ -3,49 +3,65 @@
 import { useMemo } from 'react';
 import type { BatchStockData, FocusType } from '@/lib/filters';
 import { HeatmapCell } from './HeatmapCell';
-import { SECTORS } from '@/lib/universe';
+import { computePercentile } from '@/lib/percentiles';
+
+/** Maps focus type to BatchStockData field + direction */
+const FOCUS_METRIC: Record<string, { field: keyof BatchStockData; lowerIsBetter: boolean; label: string }> = {
+  growth: { field: 'revenueGrowth', lowerIsBetter: false, label: 'revenue growth' },
+  value: { field: 'pe', lowerIsBetter: true, label: 'P/E' },
+  dividend: { field: 'dividendYield', lowerIsBetter: false, label: 'dividend yield' },
+  momentum: { field: 'priceChange52w', lowerIsBetter: false, label: '52w momentum' },
+};
 
 interface StockHeatmapProps {
   allStocks: BatchStockData[];
   filteredSymbols: Set<string>;
-  colorMode: 'change' | 'gpa';
   focus: FocusType | null;
   selectedSymbol: string | null;
   onSelectStock: (symbol: string) => void;
+  /** When all 3 filters are active, compute contextualized percentiles */
+  allFiltersActive: boolean;
   activeSector: string | null;
 }
 
 export function StockHeatmap({
   allStocks,
   filteredSymbols,
-  colorMode,
   focus,
   selectedSymbol,
   onSelectStock,
+  allFiltersActive,
   activeSector,
 }: StockHeatmapProps) {
-  // Group stocks by sector, sorted by market cap within each
-  const grouped = useMemo(() => {
-    const sectors = activeSector ? [activeSector] : SECTORS;
-    const groups: { sector: string; stocks: BatchStockData[] }[] = [];
+  // Flat list sorted by GPA descending
+  const sorted = useMemo(
+    () => [...allStocks].sort((a, b) => b.gpa - a.gpa),
+    [allStocks],
+  );
 
-    for (const sector of sectors) {
-      const sectorStocks = allStocks
-        .filter(s => s.sector === sector)
-        .sort((a, b) => b.marketCap - a.marketCap);
+  // Pre-compute contextual percentiles when all filters active
+  const contextualMap = useMemo(() => {
+    if (!allFiltersActive || !focus || !activeSector) return null;
 
-      if (sectorStocks.length > 0) {
-        groups.push({ sector, stocks: sectorStocks });
-      }
+    const metric = FOCUS_METRIC[focus];
+    if (!metric) return null;
+
+    const sectorStocks = allStocks.filter(s => s.sector === activeSector);
+    const allValues = sectorStocks
+      .map(s => s[metric.field] as number)
+      .filter(v => metric.field === 'pe' ? v > 0 : true);
+
+    const map = new Map<string, { focusPercentile: number; focusLabel: string }>();
+    for (const stock of sectorStocks) {
+      const val = stock[metric.field] as number;
+      const result = computePercentile(val, allValues, metric.lowerIsBetter);
+      map.set(stock.symbol, {
+        focusPercentile: result.percentile,
+        focusLabel: `Top ${Math.max(1, 100 - result.percentile)}% ${metric.label} in ${activeSector}`,
+      });
     }
-    return groups;
-  }, [allStocks, activeSector]);
-
-  const getCellSize = (marketCap: number): 'sm' | 'md' | 'lg' => {
-    if (marketCap > 200e9) return 'lg';
-    if (marketCap > 20e9) return 'md';
-    return 'sm';
-  };
+    return map;
+  }, [allFiltersActive, focus, activeSector, allStocks]);
 
   if (allStocks.length === 0) {
     return (
@@ -58,29 +74,31 @@ export function StockHeatmap({
     );
   }
 
+  const matchCount = sorted.filter(s => filteredSymbols.has(s.symbol)).length;
+
   return (
-    <div className="space-y-4">
-      {grouped.map(group => (
-        <div key={group.sector}>
-          <span className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider mb-1.5 block">
-            {group.sector}
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {group.stocks.map(stock => (
-              <HeatmapCell
-                key={stock.symbol}
-                stock={stock}
-                colorMode={colorMode}
-                focus={focus}
-                matched={filteredSymbols.has(stock.symbol)}
-                selected={selectedSymbol === stock.symbol}
-                onSelect={onSelectStock}
-                size={getCellSize(stock.marketCap)}
-              />
-            ))}
-          </div>
+    <div className="space-y-2">
+      {matchCount < allStocks.length && matchCount > 0 && (
+        <div className="text-xs text-text-tertiary">
+          {matchCount} of {allStocks.length} stocks highlighted
         </div>
-      ))}
+      )}
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))' }}
+      >
+        {sorted.map(stock => (
+          <HeatmapCell
+            key={stock.symbol}
+            stock={stock}
+            focus={focus}
+            matched={filteredSymbols.has(stock.symbol)}
+            selected={selectedSymbol === stock.symbol}
+            onSelect={onSelectStock}
+            contextual={contextualMap?.get(stock.symbol)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

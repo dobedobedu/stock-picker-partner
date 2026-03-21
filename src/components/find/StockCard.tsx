@@ -10,11 +10,10 @@ interface StockCardProps {
   variant: 'compact' | 'full';
   rotation?: number;
   onAdd?: () => void;
-  onAskAI?: () => void;
   onRemove?: () => void;
 }
 
-export function StockCard({ stock, variant, rotation = 0, onAdd, onAskAI, onRemove }: StockCardProps) {
+export function StockCard({ stock, variant, rotation = 0, onAdd, onRemove }: StockCardProps) {
   const style = getSectorStyle(stock.sector);
   const patternSize = getPatternSize(stock.sector);
 
@@ -132,28 +131,16 @@ export function StockCard({ stock, variant, rotation = 0, onAdd, onAskAI, onRemo
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
-          {onAdd && (
-            <button
-              onClick={onAdd}
-              className="flex-1 px-3 py-1.5 rounded-lg text-[11px] font-medium
-                bg-surface border border-border text-text-secondary
-                hover:bg-surface-hover hover:text-text transition-colors"
-            >
-              Add to Deck
-            </button>
-          )}
-          {onAskAI && (
-            <button
-              onClick={onAskAI}
-              className="flex-1 px-3 py-1.5 rounded-lg text-[11px] font-medium
-                bg-accent/15 border border-accent/25 text-accent
-                hover:bg-accent/25 transition-colors"
-            >
-              Ask AI 🤖
-            </button>
-          )}
-        </div>
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full px-3 py-1.5 rounded-lg text-[11px] font-medium
+              bg-surface border border-border text-text-secondary
+              hover:bg-surface-hover hover:text-text transition-colors"
+          >
+            Add to Deck
+          </button>
+        )}
       </div>
     </div>
   );

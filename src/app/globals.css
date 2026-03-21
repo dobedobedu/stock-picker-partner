@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@source "../node_modules/@a2ui-sdk/react";
 
 @theme {
   --color-bg: #0f0f0f;
@@ -47,6 +46,12 @@ input,
 textarea {
   background: transparent;
   outline: none;
+}
+
+/* ── Heatmap grid cells ── */
+.grid > button {
+  aspect-ratio: 1;
+  min-height: 64px;
 }
 
 /* ── Cyberpunk X-Ray styles ── */
