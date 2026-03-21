@@ -85,7 +85,7 @@ export function StockHeatmap({
         </div>
       )}
       <div
-        className="grid gap-1"
+        className="heatmap-grid grid gap-1"
         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))' }}
       >
         {sorted.map(stock => (

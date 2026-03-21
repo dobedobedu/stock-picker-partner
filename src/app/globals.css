@@ -48,8 +48,8 @@ textarea {
   outline: none;
 }
 
-/* ── Heatmap grid cells ── */
-.grid > button {
+/* ── Heatmap grid cells (scoped to heatmap only) ── */
+.heatmap-grid > button {
   aspect-ratio: 1;
   min-height: 64px;
 }
