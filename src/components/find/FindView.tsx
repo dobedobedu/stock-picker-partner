@@ -8,6 +8,7 @@ import { StepFunnel } from './StepFunnel';
 import { StockHeatmap } from './StockHeatmap';
 import { StockCard } from './StockCard';
 import { DeckFund } from './DeckFund';
+import type { ColorMode } from './HeatmapCell';
 
 interface FindViewProps {
   onAddToDeck?: (symbol: string) => void;
@@ -34,6 +35,7 @@ export function FindView({ onAddToDeck, deckSymbols, onDeckChange }: FindViewPro
   const { stocks, loading, error: fetchError } = useBatchStocks();
   const [filters, dispatch] = useReducer(filterReducer, INITIAL_FILTER_STATE);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [colorMode, setColorMode] = useState<ColorMode>('gpa');
 
   const filtered = useMemo(() => applyFilters(stocks, filters), [stocks, filters]);
   const filteredSymbols = useMemo(() => {
@@ -101,6 +103,51 @@ export function FindView({ onAddToDeck, deckSymbols, onDeckChange }: FindViewPro
         stockCounts={stockCounts}
       />
 
+      {/* Color mode toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex bg-surface border border-border rounded-lg overflow-hidden">
+          <button
+            onClick={() => setColorMode('gpa')}
+            className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              colorMode === 'gpa'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-tertiary hover:text-text-secondary'
+            }`}
+          >
+            GPA
+          </button>
+          <button
+            onClick={() => setColorMode('delta')}
+            className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              colorMode === 'delta'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-tertiary hover:text-text-secondary'
+            }`}
+          >
+            Daily +/−
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-text-tertiary">
+          {colorMode === 'delta' ? (
+            <>
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: 'rgba(220,50,50,0.6)' }} />
+              <span>negative</span>
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: 'rgba(220,170,40,0.6)' }} />
+              <span>flat</span>
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: 'rgba(40,190,60,0.6)' }} />
+              <span>positive</span>
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: 'rgba(35,60,50,0.6)' }} />
+              <span>low</span>
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: 'rgba(25,170,45,0.7)' }} />
+              <span>high GPA</span>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Main content */}
       <div className="flex gap-4">
         {/* Heatmap */}
@@ -118,6 +165,7 @@ export function FindView({ onAddToDeck, deckSymbols, onDeckChange }: FindViewPro
               onSelectStock={handleSelectStock}
               allFiltersActive={allFiltersActive}
               activeSector={filters.sector}
+              colorMode={colorMode}
             />
           )}
         </div>

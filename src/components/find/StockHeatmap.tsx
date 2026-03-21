@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import type { BatchStockData, FocusType } from '@/lib/filters';
-import { HeatmapCell } from './HeatmapCell';
+import { HeatmapCell, type ColorMode } from './HeatmapCell';
 import { computePercentile } from '@/lib/percentiles';
 
 /** Maps focus type to BatchStockData field + direction */
@@ -19,9 +19,9 @@ interface StockHeatmapProps {
   focus: FocusType | null;
   selectedSymbol: string | null;
   onSelectStock: (symbol: string) => void;
-  /** When all 3 filters are active, compute contextualized percentiles */
   allFiltersActive: boolean;
   activeSector: string | null;
+  colorMode: ColorMode;
 }
 
 export function StockHeatmap({
@@ -32,6 +32,7 @@ export function StockHeatmap({
   onSelectStock,
   allFiltersActive,
   activeSector,
+  colorMode,
 }: StockHeatmapProps) {
   // Flat list sorted by GPA descending
   const sorted = useMemo(
@@ -94,6 +95,7 @@ export function StockHeatmap({
             focus={focus}
             matched={filteredSymbols.has(stock.symbol)}
             selected={selectedSymbol === stock.symbol}
+            colorMode={colorMode}
             onSelect={onSelectStock}
             contextual={contextualMap?.get(stock.symbol)}
           />

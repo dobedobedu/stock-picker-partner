@@ -7,20 +7,22 @@ import { getFocusGrade } from '@/lib/filters';
 import { gradeToColor } from '@/lib/heatmap-colors';
 import type { Grade } from '@/lib/grading';
 
+export type ColorMode = 'gpa' | 'delta';
+
 interface HeatmapCellProps {
   stock: BatchStockData;
   focus: FocusType | null;
   matched: boolean;
   selected: boolean;
+  colorMode: ColorMode;
   onSelect: (symbol: string) => void;
-  /** When all 3 filters are set, show contextualized percentile data */
   contextual?: {
-    focusPercentile: number;  // 0-100
-    focusLabel: string;       // e.g. "Top 12% profit margin"
+    focusPercentile: number;
+    focusLabel: string;
   };
 }
 
-/** Cohort-analysis green gradient: darker green = higher GPA */
+/** GPA mode: green gradient (darker = higher GPA) */
 function gpaToGreen(gpa: number): string {
   const t = Math.max(0, Math.min(1, gpa / 4));
   const r = Math.round(20 + (1 - t) * 15);
@@ -30,16 +32,45 @@ function gpaToGreen(gpa: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/**
+ * Delta mode: full red → amber → green spectrum
+ * -5% = deep red, 0% = amber/neutral, +5% = deep green
+ * People in the middle (near 0%) get amber so learners can see the spread
+ */
+function deltaToSpectrum(changePercent: number): string {
+  const clamped = Math.max(-5, Math.min(5, changePercent));
+  const t = (clamped + 5) / 10; // 0 = deep red, 0.5 = amber, 1 = deep green
+
+  let r: number, g: number, b: number;
+  if (t < 0.5) {
+    // Red → Amber: interpolate red(220,50,50) → amber(220,170,40)
+    const s = t * 2; // 0..1
+    r = Math.round(220);
+    g = Math.round(50 + s * 120);
+    b = Math.round(50 - s * 10);
+  } else {
+    // Amber → Green: interpolate amber(220,170,40) → green(40,190,60)
+    const s = (t - 0.5) * 2; // 0..1
+    r = Math.round(220 - s * 180);
+    g = Math.round(170 + s * 20);
+    b = Math.round(40 + s * 20);
+  }
+
+  const alpha = 0.35 + Math.abs(clamped) * 0.09;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function HeatmapCell({
   stock,
   focus,
   matched,
   selected,
+  colorMode,
   onSelect,
   contextual,
 }: HeatmapCellProps) {
   const [hovered, setHovered] = useState(false);
-  const bgColor = gpaToGreen(stock.gpa);
+  const bgColor = colorMode === 'gpa' ? gpaToGreen(stock.gpa) : deltaToSpectrum(stock.changePercent);
   const focusGrade = getFocusGrade(stock, focus);
 
   return (
@@ -65,12 +96,20 @@ export function HeatmapCell({
         {stock.symbol}
       </span>
 
-      {/* GPA */}
-      <span className="text-[10px] font-mono text-white/70 leading-none">
-        {stock.gpa.toFixed(1)}
-      </span>
+      {/* Primary value based on color mode */}
+      {colorMode === 'gpa' ? (
+        <span className="text-[10px] font-mono text-white/70 leading-none">
+          {stock.gpa.toFixed(1)}
+        </span>
+      ) : (
+        <span className={`text-[10px] font-mono leading-none ${
+          stock.changePercent >= 0 ? 'text-white/80' : 'text-white/80'
+        }`}>
+          {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
+        </span>
+      )}
 
-      {/* Bottom line: contextual percentile when all filters active, else focus grade or change% */}
+      {/* Bottom line: contextual percentile, focus grade, or secondary value */}
       {contextual ? (
         <span className="text-[8px] font-mono text-white/80 leading-none text-center px-0.5 truncate w-full">
           Top {Math.max(1, 100 - contextual.focusPercentile)}%
@@ -82,15 +121,19 @@ export function HeatmapCell({
         >
           {focusGrade}
         </span>
-      ) : (
+      ) : colorMode === 'gpa' ? (
         <span className={`text-[9px] font-mono leading-none ${
           stock.changePercent >= 0 ? 'text-green/70' : 'text-rose/70'
         }`}>
           {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
         </span>
+      ) : (
+        <span className="text-[9px] font-mono text-white/50 leading-none">
+          {stock.gpa.toFixed(1)}
+        </span>
       )}
 
-      {/* Hover tooltip — always visible on hover */}
+      {/* Hover tooltip */}
       {hovered && (
         <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2
           bg-surface-raised border border-border rounded-lg shadow-xl
@@ -118,7 +161,6 @@ export function HeatmapCell({
               GPA {stock.gpa.toFixed(1)}
             </span>
           </div>
-          {/* Mini grade row */}
           <div className="flex gap-1 mt-1.5 flex-wrap">
             {stock.grades.slice(0, 4).map(g => (
               <span key={g.subject} className="text-[9px] px-1 rounded"
@@ -136,7 +178,6 @@ export function HeatmapCell({
               {contextual.focusLabel}
             </div>
           )}
-          {/* Arrow */}
           <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0
             border-l-4 border-r-4 border-t-4
             border-l-transparent border-r-transparent border-t-border" />
