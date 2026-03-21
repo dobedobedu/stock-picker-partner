@@ -1,13 +1,13 @@
 'use client';
 
-import { Scan, GitBranch, ClipboardList } from 'lucide-react';
+import { Search, BarChart3, GraduationCap } from 'lucide-react';
 
-export type Tab = 'xray' | 'tree' | 'report';
+export type Tab = 'search' | 'evaluate' | 'learn';
 
-const TABS: { id: Tab; label: string; icon: typeof Scan }[] = [
-  { id: 'xray', label: 'Stock X-Ray', icon: Scan },
-  { id: 'tree', label: 'Decision Tree', icon: GitBranch },
-  { id: 'report', label: 'Report Card', icon: ClipboardList },
+const TABS: { id: Tab; label: string; icon: typeof Search }[] = [
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'evaluate', label: 'Evaluate', icon: BarChart3 },
+  { id: 'learn', label: 'Learn', icon: GraduationCap },
 ];
 
 interface Props {
